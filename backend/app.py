@@ -10,14 +10,15 @@ Then POST to http://localhost:5000/predict
 
 Deploy free: Render.com, Railway.app, or Replit (see README_DEPLOY.md)
 """
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import pandas as pd
 import numpy as np
 import joblib
+import os
 
-app = Flask(__name__)
-CORS(app)  # allow the dashboard (served from a different origin) to call this API
+app = Flask(__name__, static_folder="static", static_url_path="")
+CORS(app)  # still useful if the dashboard is ever opened from a different origin (e.g. GitHub Pages)
 
 model = joblib.load("engine_rul_model.joblib")
 meta = joblib.load("model_meta.joblib")
@@ -55,6 +56,11 @@ def build_features(readings):
         out[f"{c}_rollmean"] = df[c].tail(window).mean()
         out[f"{c}_rollstd"] = df[c].tail(window).std() if window > 1 else 0.0
     return pd.DataFrame([out])[ENGINEERED_COLS]
+
+
+@app.route("/", methods=["GET"])
+def serve_dashboard():
+    return send_from_directory(app.static_folder, "index.html")
 
 
 @app.route("/health", methods=["GET"])
