@@ -62,11 +62,36 @@ def health():
     return jsonify({"status": "ok", "model_loaded": True})
 
 
+def build_features_for_all_rows(readings, window=5):
+    """
+    Computes engineered features for EVERY row (expanding/rolling window up to
+    that point), not just the last one -- so a multi-row upload can show a
+    trend of predictions over time, the same way the pre-recorded demo does.
+    """
+    df = pd.DataFrame(readings)
+    missing = [c for c in FEATURE_COLS if c not in df.columns]
+    if missing:
+        raise ValueError(f"Missing required sensor fields: {missing}")
+
+    rows = []
+    for i in range(len(df)):
+        window_df = df.iloc[max(0, i - window + 1): i + 1]
+        out = {}
+        for c in FEATURE_COLS:
+            out[c] = df[c].iloc[i]
+            out[f"{c}_rollmean"] = window_df[c].mean()
+            out[f"{c}_rollstd"] = window_df[c].std() if len(window_df) > 1 else 0.0
+        rows.append(out)
+    return pd.DataFrame(rows)[ENGINEERED_COLS]
+
+
 @app.route("/predict", methods=["POST"])
 def predict():
     """
     Expects JSON body: { "readings": [ {sensor readings for cycle 1}, {cycle 2}, ... ] }
-    Returns the predicted RUL and health status for the most recent cycle.
+    Returns a prediction for EVERY row provided (so a single manual reading
+    gives one result, and a multi-row CSV upload gives a full trend), plus a
+    'latest' field for convenience.
     """
     body = request.get_json(force=True)
     readings = body.get("readings")
@@ -74,16 +99,24 @@ def predict():
         return jsonify({"error": "Body must include a non-empty 'readings' list"}), 400
 
     try:
-        X = build_features(readings)
+        X = build_features_for_all_rows(readings)
     except ValueError as e:
         return jsonify({"error": str(e)}), 400
 
-    pred = float(model.predict(X)[0])
-    pred = max(0.0, min(RUL_CAP, pred))
+    preds = model.predict(X)
+    results = []
+    for i, p in enumerate(preds):
+        p = float(max(0.0, min(RUL_CAP, p)))
+        results.append({
+            "index": i,
+            "predicted_rul": round(p, 1),
+            "status": health_status(p)
+        })
+
     return jsonify({
-        "predicted_rul": round(pred, 1),
-        "status": health_status(pred),
-        "rul_cap": RUL_CAP
+        "rul_cap": RUL_CAP,
+        "results": results,
+        "latest": results[-1]
     })
 
 
