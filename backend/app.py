@@ -1,5 +1,5 @@
 """
-EngineTwin AI - Live inference backend
+EngineTwin - Live inference backend
 Loads the trained RandomForest RUL model and exposes it over a simple API,
 so new sensor readings can be sent in and get a real prediction back.
 
